@@ -8,9 +8,14 @@ class CommandHandler:
 
     def __init__(self, options):
         self.options = options
-        print(self.options)
         
     def run(self):
+        if (self.options['command'] == 'listpackages'):
+            try:
+                projectPath = self.options[0]
+            except KeyError:
+                projectPath = ""
+            self.listPackages(projectPath)
         if (self.options['command'] == 'createproject'):
             self.verifyOption(0)
             self.createProject(self.options[0])
@@ -35,31 +40,38 @@ class CommandHandler:
             print("Required option '" + str(optionName) + "' missing")
             sys.exit(1)
 
-    def createProject(self, projectName):
-        if(not FileHandler.createFolder(projectName)):
-            print("Project or folder '" + projectName + "' already exists")
+    def createProject(self, projectPath):
+        if(not FileHandler.createFolder(projectPath)):
+            print("Project or folder '" + projectPath + "' already exists")
             sys.exit(1)
-        FileHandler.createFolder(projectName + '/pk3/maps')
-        PackageHandler.saveProjectDescription(projectName, {})
-        print ("Created project '" + projectName + "'")
+        FileHandler.createFolder(projectPath + '/pk3/maps')
+        ph = PackageHandler(projectPath)
+        ph.saveProjectDescription({})
+        print ("Created project '" + projectPath + "'")
 
     def updatePackage(self, packageName):
         PackageHandler.updatePackage(packageName)
     
-    def buildProject(self, projectName):
-        if(not FileHandler.fileExists(projectName)):
-            print("Project '" + projectName + "' doesn't exist")
+    def buildProject(self, projectPath):
+        if(not FileHandler.fileExists(projectPath)):
+            print("Project '" + projectPath + "' doesn't exist")
             sys.exit(1)
-        PackageHandler.buildProject(projectName)
+        ph = PackageHandler(projectPath)
+        ph.buildProject()
         
-    def addPackage(self, packageName, projectName):
-        if(not FileHandler.fileExists(projectName)):
-            print("Project '" + projectName + "' doesn't exist")
+    def addPackage(self, packageName, projectPath):
+        if(not FileHandler.fileExists(projectPath)):
+            print("Project '" + projectPath + "' doesn't exist")
             sys.exit(1)
-        PackageHandler.addPackageToProject(packageName, projectName)
+        ph = PackageHandler(projectPath)
+        ph.installPackageTree(packageName)
 
     def removePackage(self, packageName, projectName):
         if(not FileHandler.fileExists(projectName)):
             print("Project '" + projectName + "' doesn't exist")
             sys.exit(1)
         PackageHandler.removePackageFromProject(packageName, projectName)
+        
+    def listPackages(self, projectPath):
+        ph = PackageHandler(projectPath)
+        ph.listPackages()

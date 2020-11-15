@@ -9,20 +9,21 @@ import sys
 class PackageHandler:
         
     LIBRARY_FOLDER = 'pk3toolslib'
-    PACKAGE_DOWNLOAD_PREFIX = 'http://doom.teamouse.net/pk3tools/lib/'
+    REPOSITORY_PREFIX = 'http://doom.teamouse.net/pk3tools/'
     PACKAGE_FILE_EXTENSION = 'pk3t'
     PACKAGE_DESCRIPTION_FILE = 'pk3t.json'
     PROJECT_DESCRIPTION_FILE = 'pk3tproject.json'
-
-    @classmethod
-    def createLibrary(cls):
-        FileHandler.createFolder(cls.LIBRARY_FOLDER)
     
-    @classmethod
-    def updatePackage(cls, packageName):
-        cls.createLibrary()
+    def __init__(self, projectPath):
+        self.projectPath = projectPath
+
+    def createLibrary(self):
+        FileHandler.createFolder(self.LIBRARY_FOLDER)
+    
+    def downloadPackage(self, packageName):
+        self.createLibrary()
         print ("- Attempting to download package '" + packageName + "'")
-        url = cls.PACKAGE_DOWNLOAD_PREFIX + "/" + packageName + "." + cls.PACKAGE_FILE_EXTENSION
+        url = self.REPOSITORY_PREFIX + "/lib/" + packageName + "." + self.PACKAGE_FILE_EXTENSION
         try:
             response = urllib.request.urlopen(url)
         except urllib.error.HTTPError as exception:
@@ -31,25 +32,23 @@ class PackageHandler:
         print ("- Downloaded package '" + packageName + "'")
         zipbytes = BytesIO(response.read())
         zipfile = ZipFile(zipbytes)
-        zipfile.extractall(cls.LIBRARY_FOLDER + "/" + packageName)
+        zipfile.extractall(self.LIBRARY_FOLDER + "/" + packageName)
         return True
-    
-    @classmethod
-    def verifyPackage(cls, packageName):
-        if (FileHandler.fileExists(cls.LIBRARY_FOLDER + "/" + packageName)):
+
+    def verifyPackage(self, packageName):
+        if (FileHandler.fileExists(self.LIBRARY_FOLDER + "/" + packageName)):
             print ("- Package '" + packageName + "' found in library")
             return True
-        return cls.updatePackage(packageName)
+        return self.downloadPackage(packageName)
     
-    @classmethod
-    def addPackageToProject(cls, packageName, projectName):
-        projectDescription = cls.getProjectDescription(projectName)
+    def installPackageTree(self, packageName):
+        projectDescription = self.getProjectDescription()
         installedPackages = projectDescription.get('installed', [])
         newlyInstalledPackages = []
-        print("Packages in project '" + projectName + "' : " + str(installedPackages))
+        print("Packages in project '" + self.projectPath + "' : " + str(installedPackages))
         
         if (packageName in installedPackages):
-            print ("- Package '" + packageName + "' already installed in project '" + projectName + "'")
+            print ("- Package '" + packageName + "' already installed in project '" + self.projectPath + "'")
             return
             
         packagesNeeded = [packageName]
@@ -59,12 +58,12 @@ class PackageHandler:
                 break
             currentPackage = packagesNeeded[packageListIndex]
             if (currentPackage not in installedPackages):
-                if (not cls.verifyPackage(currentPackage)):
+                if (not self.verifyPackage(currentPackage)):
                     print ("X Could not find or download package '" + currentPackage + "'")
                     return
                 # OK, we need this one. Get its dependencies
                 print ("- Getting dependencies for '" + currentPackage + "'")
-                desc = cls.getPackageDescription(currentPackage)
+                desc = self.getPackageDescription(currentPackage)
                 dependencies = desc.get('needs', [])
                 for dependencyName in dependencies:
                     print ("-- Requires package '" + dependencyName + "'")
@@ -77,142 +76,186 @@ class PackageHandler:
         print ("- Installing required packages!")
         for packageNeeded in packagesNeeded:                
             if (packageNeeded in installedPackages):
-                print ("- Package '" + packageNeeded + "' already installed in project '" + projectName + "'")
+                print ("- Package '" + packageNeeded + "' already installed in project '" + self.projectPath + "'")
             else:
-                cls.installPackage(packageNeeded, projectName)
+                self.__installPackage(packageNeeded)
                 newlyInstalledPackages.append(packageNeeded)
 
         # We've installed successfully! Add everything to the project description file
         installedPackages = installedPackages + newlyInstalledPackages
-        cls.saveProjectDescription(projectName, {'installed': installedPackages})
-        cls.generateTextFiles(projectName)
+        self.saveProjectDescription({'installed': installedPackages})
+        self.generateMapinfo()
             
-    @classmethod
-    def removePackageFromProject(cls, packageName, projectName):
-        print ("- Uninstalling '" + packageName + "' from project '" + projectName + "'")
+    #TODO Needs to be rewritten to account for new way of installing
+    def removePackageFromProject(self, packageName):
+        print ("- Uninstalling '" + packageName + "' from project '" + self.projectPath + "'")
 
-        projectDescription = cls.getProjectDescription(projectName)
+        projectDescription = self.getProjectDescription(self.projectPath)
         installedPackages = projectDescription.get('installed', [])
 
         if (packageName not in installedPackages):
-            print ("- Package '" + packageName + "' not installed in project '" + projectName + "'")
+            print ("- Package '" + packageName + "' not installed in project '" + self.projectPath + "'")
             return
 
-        FileHandler.deleteFile(os.path.join(projectName, "pk3", "sounds", packageName))
-        FileHandler.deleteFile(os.path.join(projectName, "pk3", "sprites", packageName))
-        FileHandler.deleteFile(os.path.join(projectName, "pk3", "decorate." + packageName))
-        FileHandler.deleteFile(os.path.join(projectName, "pk3", "zscript." + packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "sounds", packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "sprites", packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "decorate." + packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "zscript." + packageName))
         
         installedPackages.remove(packageName)
-        cls.saveProjectDescription(projectName, {'installed': installedPackages})
-        cls.generateTextFiles(projectName)
-        
+        self.saveProjectDescription({'installed': installedPackages})
+        self.generateMapinfo()
         print ("- Uninstalled")
-    
-    @classmethod
-    def installPackage(cls, packageName, projectName):
 
-        print ("- Installing '" + packageName + "' to project '" + projectName + "'")
+    ## Performs the internals of copying a package's files to a project and updating the project's include files
+    def __installPackage(self, packageName):
 
-        packageFolder = cls.LIBRARY_FOLDER + "/" + packageName
+        print ("- Installing '" + packageName + "' to project '" + self.projectPath + "'")
+
+        packageFolder = self.LIBRARY_FOLDER + "/" + packageName
         if (FileHandler.fileExists(packageFolder + "/sndinfo.txt")):
-            print ("-- Installing sounds for '" + packageName + "'")
-            FileHandler.copyFolder(packageFolder + "/sounds", projectName + "/pk3/sounds/" + packageName)
-
-        if (FileHandler.fileExists(packageFolder + "/decorate.txt")):
-            print ("-- Installing DECORATE for '" + packageName + "'")
-            FileHandler.copyFile(packageFolder + "/decorate.txt", projectName + "/pk3/decorate." + packageName)
-
-        if (FileHandler.fileExists(packageFolder + "/zscript.txt")):
-            print ("-- Installing ZSCRIPT for '" + packageName + "'")
-            FileHandler.copyFile(packageFolder + "/zscript.txt", projectName + "/pk3/zscript." + packageName)
-
+            self.__installNonIncludableScript("sndinfo", packageName)
         if (FileHandler.fileExists(packageFolder + "/gldefs.txt")):
             print ("-- Installing GLDEFS for '" + packageName + "'")
-            FileHandler.copyFolder(packageFolder + "/BM", projectName + "/pk3/BM/" + packageName)
+            self.__installNonIncludableScript("gldefs", packageName)
+
+        if (FileHandler.fileExists(packageFolder + "/decorate.txt")):
+            self.__installIncludableScript("decorate", packageName)
+        if (FileHandler.fileExists(packageFolder + "/zscript.txt")):
+            self.__installIncludableScript("zscript", packageName)
 
         if (FileHandler.fileExists(packageFolder + "/sprites")):
             print ("-- Installing sprites for '" + packageName + "'")
-            FileHandler.copyFolder(packageFolder + "/sprites", projectName + "/pk3/sprites/" + packageName)
-
+            FileHandler.copyFolder(packageFolder + "/sprites", self.getDataFolderForPackage("sprites", packageName))
         print ("- Installed '" + packageName + "'")
-    
-    @classmethod
-    def getPackageDescription(cls, packageName):
-        data = json.load(open(cls.LIBRARY_FOLDER + "/" + packageName + "/" + cls.PACKAGE_DESCRIPTION_FILE))
+        
+    def __installNonIncludableScript(self, scriptType, packageName):
+            print ("-- Installing " + scriptType + " for '" + packageName + "'")
+            packageFolder = self.LIBRARY_FOLDER + "/" + packageName
+            
+            folderToCopy = ""
+            if (scriptType == "sndinfo"):
+                folderToCopy = "sounds"
+            if (scriptType == "gldefs"):
+                folderToCopy = "BM"
+            
+            FileHandler.copyFolder(packageFolder + "/" + folderToCopy, self.getDataFolderForPackage(folderToCopy, packageName))
+            with open(packageFolder + "/" + scriptType + ".txt") as file:
+                fileString = file.read()
+            self.updateIncludeFileSegment(scriptType, packageName, fileString)
+
+    def __installIncludableScript(self, scriptType, packageName):
+        packageFolder = self.LIBRARY_FOLDER + "/" + packageName
+        ## If there's a folder for this script, copy it all in and then use the contents of the package's txt in our include file
+        if (FileHandler.fileExists(packageFolder + "/" + scriptType)):
+            print ("-- Installing " + scriptType + " folder for '" + packageName + "'")
+            destinationFolder = self.getDataFolderForPackage(scriptType, packageName)
+            FileHandler.copyFolder(packageFolder + "/" + scriptType + "/", destinationFolder)
+            fileString = ""
+            with open(packageFolder + "/" + scriptType + ".txt") as file:
+                fileString = file.read()
+            self.updateIncludeFileSegment(scriptType, packageName, fileString)
+        else:
+            ## If there is just one txt, copy it in then add an include line in our base file
+            print ("-- Installing " + scriptType + " file for '" + packageName + "'")
+            FileHandler.createFolder(self.getDataFolderForPackage(scriptType, packageName))
+            fileNameToInclude = scriptType + "/pk3t/" + packageName + "/" + packageName + ".txt"
+            textOfSegment = "#include \"" + fileNameToInclude + "\"\n"
+            FileHandler.copyFile(packageFolder + "/" + scriptType + ".txt", self.projectPath + "/pk3/" + fileNameToInclude)
+            self.updateIncludeFileSegment(scriptType, packageName, textOfSegment)
+
+    ## Create or overwrite a segment for a package in a top-level project file
+    def updateIncludeFileSegment(self, fileNameToUpdate, packageName, textOfSegment):
+        filePathToUpdate = self.projectPath + "/pk3/" + fileNameToUpdate + ".pk3t"
+        
+        stringSegmentStart = "//<< PK3T " + packageName + " START >>//"
+        stringSegmentEnd = "//<< PK3T " + packageName + " END >>//"
+        
+        ##Create our pk3t-recognizable segment
+        segment = stringSegmentStart + "\n"
+        segment += textOfSegment + "\n"
+        segment += stringSegmentEnd + "\n"
+        ##If the file doesn't exist, easy - just write it!
+        if (not FileHandler.fileExists(filePathToUpdate)):
+            with open(filePathToUpdate, 'w') as outfile:
+                outfile.write(self.getAutoGeneratedWarning(fileNameToUpdate) + "\n\n")
+                outfile.write(segment)
+            print ("--- Created " + self.projectPath + " PK3T " + fileNameToUpdate + " file")
+            return
+        
+        ##Otherwise, we have to open the file and either append or replace the existing segment
+        with open(filePathToUpdate, 'r') as file:
+            newString = ""
+            fileString = file.read()
+            startIndexOfExistingSegment = fileString.find(stringSegmentStart)
+            endIndexOfExistingSegment = fileString.find(stringSegmentEnd) + len(stringSegmentEnd) + 1
+            if (startIndexOfExistingSegment == -1):
+                newString = fileString + segment
+            else:
+                newString = fileString[0:startIndexOfExistingSegment] + fileString[endIndexOfExistingSegment:] + segment
+        with open(filePathToUpdate, 'w') as outfile:
+            outfile.write(newString)
+        print ("--- Updated " + self.projectPath + " PK3T " + fileNameToUpdate + " file")
+        return
+
+    def getPackageDescription(self, packageName):
+        data = json.load(open(self.LIBRARY_FOLDER + "/" + packageName + "/" + self.PACKAGE_DESCRIPTION_FILE))
         return data
         
-    @classmethod
-    def getProjectDescription(cls, projectName):
-        data = json.load(open(projectName + "/" + cls.PROJECT_DESCRIPTION_FILE))
+    def getProjectDescription(self):
+        data = json.load(open(self.projectPath + "/" + self.PROJECT_DESCRIPTION_FILE))
         return data
     
-    @classmethod
-    def saveProjectDescription(cls, projectName, data):
-        with open(projectName + "/" + cls.PROJECT_DESCRIPTION_FILE, 'w') as outfile:
+    def saveProjectDescription(self, data):
+        with open(self.projectPath + "/" + self.PROJECT_DESCRIPTION_FILE, 'w') as outfile:
             json.dump(data, outfile)
-        print ("- Saved " + projectName + " description file")
-        
-    @classmethod
-    def generateMapinfo(cls, projectName):
-        print ("Updating MAPINFO.pk3t")
-        output = cls.getAutoGenerateWarning("MAPINFO")
+        print ("- Saved " + self.projectPath + " description file")
+
+    def generateMapinfo(self):
+        print ("- Updating MAPINFO.pk3t")
+        output = self.getAutoGeneratedWarning("MAPINFO")
         output = output + "DoomEdNums {\n"
-        projectDescription = cls.getProjectDescription(projectName)
+        projectDescription = self.getProjectDescription()
         installedPackages = projectDescription.get('installed', [])
         for installedPackage in installedPackages:
-            cls.verifyPackage(installedPackage)
-            desc = cls.getPackageDescription(installedPackage)
+            desc = self.getPackageDescription(installedPackage)
             doomednums = desc.get("doomednums", {})
             for doomednum, classname in doomednums.items():
                 output = output + "    " + doomednum + " = " + classname + "\n"
         output = output + "}\n"
-        with open(projectName + "/pk3/mapinfo.pk3t", 'w') as file:
+        with open(self.projectPath + "/pk3/mapinfo.pk3t", 'w') as file:
             file.write(output)
-    
-    @classmethod
-    def generateSndinfo(cls, projectName):
-        print ("Updating SNDINFO.pk3t")
-        projectDescription = cls.getProjectDescription(projectName)
-        installedPackages = projectDescription.get('installed', [])
-        filesToConcatenate = []
-        for installedPackage in installedPackages:
-            cls.verifyPackage(installedPackage)
-            sndinfofilename = os.path.join(cls.LIBRARY_FOLDER, installedPackage, "sndinfo.txt")
-            if FileHandler.fileExists(sndinfofilename):
-                filesToConcatenate.append(sndinfofilename)
-        FileHandler.concatenateFiles(filesToConcatenate, os.path.join(projectName, "pk3", "sndinfo.pk3t"), cls.getAutoGenerateWarning("SNDINFO"))
 
-    @classmethod
-    def generateGldefs(cls, projectName):
-        print ("Updating GLDEFS.pk3t")
-        projectDescription = cls.getProjectDescription(projectName)
-        installedPackages = projectDescription.get('installed', [])
-        filesToConcatenate = []
-        for installedPackage in installedPackages:
-            cls.verifyPackage(installedPackage)
-            sndinfofilename = os.path.join(cls.LIBRARY_FOLDER, installedPackage, "gldefs.txt")
-            if FileHandler.fileExists(sndinfofilename):
-                filesToConcatenate.append(sndinfofilename)
-        FileHandler.concatenateFiles(filesToConcatenate, os.path.join(projectName, "pk3", "gldefs.pk3t"), cls.getAutoGenerateWarning("GLDEFS"))
-        
-    @classmethod
-    def getAutoGenerateWarning(cls, filetype):
+    def getAutoGeneratedWarning(self, filetype):
         return ("/////////////////////////////////////////////////////////////\n"
         + "// " + filetype + " generated by PK3Tools!\n"
         + "// Don't modify things here as they'll be overwritten.\n"
         + "// Create your own lump and use it alongside this one instead\n"
         + "/////////////////////////////////////////////////////////////\n\n")
         
-    @classmethod
-    def buildProject(cls, projectName):
-        cls.generateTextFiles(projectName)
-        print ("Zipping project '" + projectName + "'!")
-        FileHandler.zipProject(projectName)
-        print ("Project '" + projectName + "' built successfully")
+    def buildProject(self):
+        print ("Zipping project '" + self.projectPath + "'!")
+        FileHandler.zipProject(self.projectPath)
+        print ("Project '" + self.projectPath + "' built successfully")
 
-    @classmethod
-    def generateTextFiles(cls, projectName):
-        cls.generateMapinfo(projectName)
-        cls.generateSndinfo(projectName)
-        cls.generateGldefs(projectName)
+    def getDataFolderForPackage(self, dataType, packageName):
+        return self.projectPath + "/pk3/" + dataType + "/pk3t/" + packageName
+        
+    def listPackages(self):
+        url = self.REPOSITORY_PREFIX + "/packagelist.php"
+        try:
+            response = urllib.request.urlopen(url)
+        except urllib.error.HTTPError as exception:
+            print ("X Failed to contact repository")
+            return False
+        listedPackages = json.loads(response.read().decode("utf-8"))
+        
+        installedPackages = []
+        if (self.projectPath):
+            projectDescription = self.getProjectDescription()
+            installedPackages = projectDescription.get('installed', [])
+        for packageName in listedPackages:
+            flag = " "
+            if (packageName in installedPackages):
+                flag = "*"
+            print(flag + " " + packageName.ljust(30) + listedPackages[packageName]['category'])
