@@ -66,11 +66,12 @@ class CommandHandler:
         ph = PackageHandler(projectPath)
         ph.installPackageTree(packageName)
 
-    def removePackage(self, packageName, projectName):
-        if(not FileHandler.fileExists(projectName)):
-            print("Project '" + projectName + "' doesn't exist")
+    def removePackage(self, packageName, projectPath):
+        if(not FileHandler.fileExists(projectPath)):
+            print("Project '" + projectPath + "' doesn't exist")
             sys.exit(1)
-        PackageHandler.removePackageFromProject(packageName, projectName)
+        ph = PackageHandler(projectPath)
+        ph.removePackageFromProject(packageName)
         
     def listPackages(self, projectPath):
         ph = PackageHandler(projectPath)

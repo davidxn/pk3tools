@@ -90,17 +90,24 @@ class PackageHandler:
     def removePackageFromProject(self, packageName):
         print ("- Uninstalling '" + packageName + "' from project '" + self.projectPath + "'")
 
-        projectDescription = self.getProjectDescription(self.projectPath)
+        projectDescription = self.getProjectDescription()
         installedPackages = projectDescription.get('installed', [])
 
         if (packageName not in installedPackages):
             print ("- Package '" + packageName + "' not installed in project '" + self.projectPath + "'")
             return
+            
+        self.deleteIncludeFileSegment("decorate", packageName)
+        self.deleteIncludeFileSegment("zscript", packageName)
+        self.deleteIncludeFileSegment("sndinfo", packageName)
+        self.deleteIncludeFileSegment("gldefs", packageName)
+        self.deleteIncludeFileSegment("credits", packageName)
 
-        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "sounds", packageName))
-        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "sprites", packageName))
-        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "decorate." + packageName))
-        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "zscript." + packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "sounds", "pk3t", packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "sprites", "pk3t", packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "decorate", "pk3t", packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "zscript", "pk3t", packageName))
+        FileHandler.deleteFile(os.path.join(self.projectPath, "pk3", "BM", "pk3t", packageName))
         
         installedPackages.remove(packageName)
         self.saveProjectDescription({'installed': installedPackages})
@@ -118,6 +125,9 @@ class PackageHandler:
         if (FileHandler.fileExists(packageFolder + "/gldefs.txt")):
             print ("-- Installing GLDEFS for '" + packageName + "'")
             self.__installNonIncludableScript("gldefs", packageName)
+        if (FileHandler.fileExists(packageFolder + "/credits.txt")):
+            print ("-- Installing credits for '" + packageName + "'")
+            self.__installNonIncludableScript("credits", packageName)
 
         if (FileHandler.fileExists(packageFolder + "/decorate.txt")):
             self.__installIncludableScript("decorate", packageName)
@@ -139,7 +149,8 @@ class PackageHandler:
             if (scriptType == "gldefs"):
                 folderToCopy = "BM"
             
-            FileHandler.copyFolder(packageFolder + "/" + folderToCopy, self.getDataFolderForPackage(folderToCopy, packageName))
+            if (folderToCopy):
+                FileHandler.copyFolder(packageFolder + "/" + folderToCopy, self.getDataFolderForPackage(folderToCopy, packageName))
             with open(packageFolder + "/" + scriptType + ".txt") as file:
                 fileString = file.read()
             self.updateIncludeFileSegment(scriptType, packageName, fileString)
@@ -197,8 +208,35 @@ class PackageHandler:
             outfile.write(newString)
         print ("--- Updated " + self.projectPath + " PK3T " + fileNameToUpdate + " file")
         return
+        
+    def deleteIncludeFileSegment(self, fileNameToUpdate, packageName):
+        
+        filePathToUpdate = self.projectPath + "/pk3/" + fileNameToUpdate + ".pk3t"
+        
+        stringSegmentStart = "//<< PK3T " + packageName + " START >>//"
+        stringSegmentEnd = "//<< PK3T " + packageName + " END >>//"
+        newString = ""
+        
+        ##OK, nothing to delete
+        if (not FileHandler.fileExists(filePathToUpdate)):
+            return
+        
+        ##Otherwise, open the file and remove the section if it exists
+        with open(filePathToUpdate, 'r') as file:
+            fileString = file.read()
+            startIndexOfExistingSegment = fileString.find(stringSegmentStart)
+            endIndexOfExistingSegment = fileString.find(stringSegmentEnd) + len(stringSegmentEnd) + 1
+            if (startIndexOfExistingSegment == -1):
+                ##No segment - return
+                return
+            else:
+                newString = fileString[0:startIndexOfExistingSegment] + fileString[endIndexOfExistingSegment:]
+        with open(filePathToUpdate, 'w') as outfile:
+            outfile.write(newString)
+        print ("--- Deleted " + self.projectPath + " PK3T " + fileNameToUpdate + " entry for " + packageName)
 
     def getPackageDescription(self, packageName):
+        self.verifyPackage(packageName)
         data = json.load(open(self.LIBRARY_FOLDER + "/" + packageName + "/" + self.PACKAGE_DESCRIPTION_FILE))
         return data
         
@@ -258,4 +296,9 @@ class PackageHandler:
             flag = " "
             if (packageName in installedPackages):
                 flag = "*"
-            print(flag + " " + packageName.ljust(30) + listedPackages[packageName]['category'])
+            tagString = ""
+            try:
+                tagString = " ".join(listedPackages[packageName]['tags'])
+            except KeyError:
+                pass
+            print(flag + " " + packageName.ljust(30) + listedPackages[packageName]['category'].ljust(10) + tagString)
