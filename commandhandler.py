@@ -27,7 +27,11 @@ class CommandHandler:
             self.buildProject(self.options[0])
         if (self.options['command'] == 'addpackage'):
             self.verifyOption(1)
-            self.addPackage(self.options[1], self.options[0])
+            try:
+                force = int(self.options[2])
+            except KeyError:
+                force = 0
+            self.addPackage(self.options[1], self.options[0], force)
         if (self.options['command'] == 'removepackage'):
             self.verifyOption(1)
             self.removePackage(self.options[1], self.options[0])
@@ -59,12 +63,12 @@ class CommandHandler:
         ph = PackageHandler(projectPath)
         ph.buildProject()
         
-    def addPackage(self, packageName, projectPath):
+    def addPackage(self, packageName, projectPath, force = 0):
         if(not FileHandler.fileExists(projectPath)):
             print("Project '" + projectPath + "' doesn't exist")
             sys.exit(1)
         ph = PackageHandler(projectPath)
-        ph.installPackageTree(packageName)
+        ph.installPackageTree(packageName, force)
 
     def removePackage(self, packageName, projectPath):
         if(not FileHandler.fileExists(projectPath)):

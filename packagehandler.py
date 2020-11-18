@@ -35,19 +35,25 @@ class PackageHandler:
         zipfile.extractall(self.LIBRARY_FOLDER + "/" + packageName)
         return True
 
-    def verifyPackage(self, packageName):
-        if (FileHandler.fileExists(self.LIBRARY_FOLDER + "/" + packageName)):
+    ## Check that a package exists in the local cache, and download it if it doesn't.
+    ## refreshLevel 0 or 1 = Only download the package if it doesn't exist in the cache.
+    ## refreshLevel 2      = Always download a fresh copy of the package.
+    def verifyPackage(self, packageName, refreshLevel = 0):
+        if (FileHandler.fileExists(self.LIBRARY_FOLDER + "/" + packageName) and refreshLevel <= 1):
             print ("- Package '" + packageName + "' found in library")
             return True
         return self.downloadPackage(packageName)
-    
-    def installPackageTree(self, packageName):
+
+    ## Entry point for installing a package and its dependencies.
+    ## refreshLevel 0 = Don't reinstall packages that exist in the project.
+    ##              1 = For packages that already exist, get a new copy of the package from the cache.
+    ##              2 = For packages that already exist, download a new copy of the package.
+    def installPackageTree(self, packageName, refreshLevel = 0):
         projectDescription = self.getProjectDescription()
         installedPackages = projectDescription.get('installed', [])
         newlyInstalledPackages = []
-        print("Packages in project '" + self.projectPath + "' : " + str(installedPackages))
         
-        if (packageName in installedPackages):
+        if (refreshLevel == 0 and packageName in installedPackages):
             print ("- Package '" + packageName + "' already installed in project '" + self.projectPath + "'")
             return
             
@@ -57,9 +63,9 @@ class PackageHandler:
             if (packageListIndex >= len(packagesNeeded)):
                 break
             currentPackage = packagesNeeded[packageListIndex]
-            if (currentPackage not in installedPackages):
-                if (not self.verifyPackage(currentPackage)):
-                    print ("X Could not find or download package '" + currentPackage + "'")
+            if (refreshLevel > 0 or currentPackage not in installedPackages):
+                if (not self.verifyPackage(currentPackage, refreshLevel)):
+                    print ("X Could not find package '" + currentPackage + "'")
                     return
                 # OK, we need this one. Get its dependencies
                 print ("- Getting dependencies for '" + currentPackage + "'")
@@ -75,18 +81,18 @@ class PackageHandler:
         
         print ("- Installing required packages!")
         for packageNeeded in packagesNeeded:                
-            if (packageNeeded in installedPackages):
+            if (refreshLevel == 0 and packageNeeded in installedPackages):
                 print ("- Package '" + packageNeeded + "' already installed in project '" + self.projectPath + "'")
             else:
+                self.removePackageFromProject(packageNeeded)
                 self.__installPackage(packageNeeded)
                 newlyInstalledPackages.append(packageNeeded)
 
-        # We've installed successfully! Add everything to the project description file
-        installedPackages = installedPackages + newlyInstalledPackages
+        # We've installed successfully! Add everything to the project description file (and deduplicate)
+        installedPackages = list(dict.fromkeys(installedPackages + newlyInstalledPackages))
         self.saveProjectDescription({'installed': installedPackages})
         self.generateMapinfo()
             
-    #TODO Needs to be rewritten to account for new way of installing
     def removePackageFromProject(self, packageName):
         print ("- Uninstalling '" + packageName + "' from project '" + self.projectPath + "'")
 
@@ -296,6 +302,8 @@ class PackageHandler:
             flag = " "
             if (packageName in installedPackages):
                 flag = "*"
+            if (FileHandler.fileExists(self.LIBRARY_FOLDER + "/" + packageName)):
+                flag = "D"
             tagString = ""
             try:
                 tagString = " ".join(listedPackages[packageName]['tags'])

@@ -7,7 +7,6 @@ def printHelp():
     print("removepackage <project> <package> - Remove package from a project")
     print("")
     print("listpackages                      - List packages available in library")
-    print("updatepackage <package>           - Update package from remote library")
     print("zippackage <package>              - Zip local package for uploading")
 
 
