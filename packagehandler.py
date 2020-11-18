@@ -40,7 +40,6 @@ class PackageHandler:
     ## refreshLevel 2      = Always download a fresh copy of the package.
     def verifyPackage(self, packageName, refreshLevel = 0):
         if (FileHandler.fileExists(self.LIBRARY_FOLDER + "/" + packageName) and refreshLevel <= 1):
-            print ("- Package '" + packageName + "' found in library")
             return True
         return self.downloadPackage(packageName)
 
@@ -84,7 +83,8 @@ class PackageHandler:
             if (refreshLevel == 0 and packageNeeded in installedPackages):
                 print ("- Package '" + packageNeeded + "' already installed in project '" + self.projectPath + "'")
             else:
-                self.removePackageFromProject(packageNeeded)
+                if (refreshLevel > 0):
+                    self.removePackageFromProject(packageNeeded)
                 self.__installPackage(packageNeeded)
                 newlyInstalledPackages.append(packageNeeded)
 
@@ -94,7 +94,6 @@ class PackageHandler:
         self.generateMapinfo()
             
     def removePackageFromProject(self, packageName):
-        print ("- Uninstalling '" + packageName + "' from project '" + self.projectPath + "'")
 
         projectDescription = self.getProjectDescription()
         installedPackages = projectDescription.get('installed', [])
@@ -102,7 +101,8 @@ class PackageHandler:
         if (packageName not in installedPackages):
             print ("- Package '" + packageName + "' not installed in project '" + self.projectPath + "'")
             return
-            
+
+        print ("- Uninstalling '" + packageName + "' from project '" + self.projectPath + "'")            
         self.deleteIncludeFileSegment("decorate", packageName)
         self.deleteIncludeFileSegment("zscript", packageName)
         self.deleteIncludeFileSegment("sndinfo", packageName)
@@ -129,10 +129,8 @@ class PackageHandler:
         if (FileHandler.fileExists(packageFolder + "/sndinfo.txt")):
             self.__installNonIncludableScript("sndinfo", packageName)
         if (FileHandler.fileExists(packageFolder + "/gldefs.txt")):
-            print ("-- Installing GLDEFS for '" + packageName + "'")
             self.__installNonIncludableScript("gldefs", packageName)
         if (FileHandler.fileExists(packageFolder + "/credits.txt")):
-            print ("-- Installing credits for '" + packageName + "'")
             self.__installNonIncludableScript("credits", packageName)
 
         if (FileHandler.fileExists(packageFolder + "/decorate.txt")):
@@ -159,6 +157,9 @@ class PackageHandler:
                 FileHandler.copyFolder(packageFolder + "/" + folderToCopy, self.getDataFolderForPackage(folderToCopy, packageName))
             with open(packageFolder + "/" + scriptType + ".txt") as file:
                 fileString = file.read()
+                ## Super hack! Folder structure changes a bit, so amend any mentions of the package name in some files
+                if (scriptType == "sndinfo" or scriptType == "gldefs"):
+                    fileString = fileString.replace("/" + packageName, "/pk3t/" + packageName)
             self.updateIncludeFileSegment(scriptType, packageName, fileString)
 
     def __installIncludableScript(self, scriptType, packageName):
@@ -300,10 +301,10 @@ class PackageHandler:
             installedPackages = projectDescription.get('installed', [])
         for packageName in listedPackages:
             flag = " "
-            if (packageName in installedPackages):
-                flag = "*"
             if (FileHandler.fileExists(self.LIBRARY_FOLDER + "/" + packageName)):
                 flag = "D"
+            if (packageName in installedPackages):
+                flag = "*"
             tagString = ""
             try:
                 tagString = " ".join(listedPackages[packageName]['tags'])
